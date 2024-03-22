@@ -13,66 +13,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package namespaced
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	configv1beta1 "github.com/deislabs/ratify/api/v1beta1"
 	"github.com/deislabs/ratify/pkg/certificateprovider"
-	"github.com/deislabs/ratify/pkg/certificateprovider/inline"
+	test "github.com/deislabs/ratify/pkg/utils"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/deislabs/ratify/pkg/controllers"
+	cs "github.com/deislabs/ratify/pkg/customresources/certificatestores"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 )
 
-func TestGetCertStoreConfig_ValidConfig(t *testing.T) {
-	var parametersString = "{\"certificates\":\"array:\\n  - |\\n    certificateName: wabbit-networks-io\\n    certificateVersion: 97a1545d893344079ce57699c8810590\\n\",\"clientID\":\"sampleClientID\",\"keyvaultName\":\"sampleKeyVault\",\"tenantID\":\"sampleTenantID\"}"
-	var certStoreParameters = []byte(parametersString)
-
-	spec := configv1beta1.CertificateStoreSpec{
-		Provider: "azurekeyvault",
-		Parameters: runtime.RawExtension{
-			Raw: certStoreParameters,
-		},
-	}
-
-	result, err := getCertStoreConfig(spec)
-	if err != nil {
-		t.Fatalf("unexpected error %v", err)
-	}
-
-	if len(result) != 4 ||
-		result["clientID"] != "sampleClientID" ||
-		result["tenantID"] != "sampleTenantID" ||
-		result["keyvaultName"] != "sampleKeyVault" ||
-		result["certificates"] != "array:\n  - |\n    certificateName: wabbit-networks-io\n    certificateVersion: 97a1545d893344079ce57699c8810590\n" {
-		t.Fatalf("unexpected value")
-	}
-}
-
-func TestGetCertStoreConfig_EmptyStringError(t *testing.T) {
-	var parametersString = ""
-	var certStoreParameters = []byte(parametersString)
-
-	spec := configv1beta1.CertificateStoreSpec{
-		Provider: "azurekeyvault",
-		Parameters: runtime.RawExtension{
-			Raw: certStoreParameters,
-		},
-	}
-
-	_, err := getCertStoreConfig(spec)
-	if err == nil {
-		t.Fatalf("Expected error")
-	}
-
-	expectedError := "received empty parameters"
-	if err.Error() != expectedError {
-		t.Fatalf("Unexpected error, expected %+v, got %+v", expectedError, err.Error())
-	}
-}
+const certStoreName = "certStoreName"
 
 func TestUpdateErrorStatus(t *testing.T) {
 	var parametersString = "{\"certs\":{\"name\":\"certName\"}}"
@@ -169,17 +130,76 @@ func TestUpdateSuccessStatus_emptyProperties(t *testing.T) {
 	}
 }
 
-func TestGetCertificateProvider(t *testing.T) {
-	providers := map[string]certificateprovider.CertificateProvider{}
-	providers["inline"] = inline.Create()
-	result, _ := getCertificateProvider(providers, "inline")
-
-	if result == nil {
-		t.Fatalf("Expected getCertificateProvider() to return inline cert provider")
+func TestCertStoreReconcile(t *testing.T) {
+	tests := []struct {
+		name               string
+		certStore          *configv1beta1.CertificateStore
+		req                *reconcile.Request
+		expectedErr        bool
+		expectedCertsCount int
+	}{
+		{
+			name: "nonexistent cert store",
+			req: &reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "nonexistent"},
+			},
+			certStore: &configv1beta1.CertificateStore{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: testNamespace,
+					Name:      certStoreName,
+				},
+			},
+			expectedErr:        false,
+			expectedCertsCount: 0,
+		},
+		{
+			name: "empty cert store",
+			certStore: &configv1beta1.CertificateStore{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: testNamespace,
+					Name:      certStoreName,
+				},
+				Spec: configv1beta1.CertificateStoreSpec{},
+			},
+			expectedErr:        true,
+			expectedCertsCount: 0,
+		},
 	}
 
-	_, err := getCertificateProvider(providers, "azurekv")
-	if err == nil {
-		t.Fatalf("Getting unregistered provider should returns an error")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetCertStoreMap()
+			scheme, err := test.CreateScheme()
+			if err != nil {
+				t.Fatalf("CreateScheme() expected no error, actual %v", err)
+			}
+			client := fake.NewClientBuilder().WithScheme(scheme)
+			client.WithObjects(tt.certStore)
+			r := &CertificateStoreReconciler{
+				Scheme: scheme,
+				Client: client.Build(),
+			}
+			var req reconcile.Request
+			if tt.req != nil {
+				req = *tt.req
+			} else {
+				req = reconcile.Request{
+					NamespacedName: test.KeyFor(tt.certStore),
+				}
+			}
+
+			_, err = r.Reconcile(context.Background(), req)
+			if tt.expectedErr != (err != nil) {
+				t.Fatalf("Reconcile() expected error %v, actual %v", tt.expectedErr, err)
+			}
+			certs := controllers.CertificatesMap.GetCertStores(testNamespace)
+			if len(certs) != tt.expectedCertsCount {
+				t.Fatalf("Cert map expected size %v, actual %v", tt.expectedCertsCount, len(certs))
+			}
+		})
 	}
+}
+
+func resetCertStoreMap() {
+	controllers.CertificatesMap = cs.NewActiveCertStores()
 }

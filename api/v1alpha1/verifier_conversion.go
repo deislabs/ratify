@@ -24,7 +24,7 @@ import (
 // Convert unversioned VerifierStatus to VerifierStatus of v1alpha1.
 //
 //nolint:revive
-func Convert_unversioned_VerifierStatus_To_v1alpha1_VerifierStatus(status *unversioned.VerifierStatus, out *VerifierStatus, _ conversion.Scope) error {
+func Convert_unversioned_VerifierStatus_To_v1alpha1_VerifierStatus(in *unversioned.VerifierStatus, out *VerifierStatus, _ conversion.Scope) error {
 	return nil
 }
 

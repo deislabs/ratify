@@ -17,21 +17,26 @@ limitations under the License.
 package v1alpha1
 
 import (
+	unsafe "unsafe"
+
 	unversioned "github.com/deislabs/ratify/api/unversioned"
 	conversion "k8s.io/apimachinery/pkg/conversion"
 )
+
+// Convert unversioned StoreSpec to VerifieStoreSpecrSpec of v1alpha1.
+//
+//nolint:revive
+func Convert_unversioned_StoreSpec_To_v1alpha1_StoreSpec(in *unversioned.StoreSpec, out *StoreSpec, _ conversion.Scope) error {
+	out.Name = in.Name
+	out.Address = in.Address
+	out.Source = (*PluginSource)(unsafe.Pointer(in.Source))
+	out.Parameters = in.Parameters
+	return nil
+}
 
 // Convert unversioned StoreStatus to StoreStatus of v1alpha1.
 //
 //nolint:revive
 func Convert_unversioned_StoreStatus_To_v1alpha1_StoreStatus(in *unversioned.StoreStatus, out *StoreStatus, _ conversion.Scope) error {
-	return nil
-}
-
-// Convert unversioned StoreSpec to VerifieStoreSpecrSpec of v1alpha1.
-//
-//nolint:revive
-func Convert_unversioned_StoreSpec_To_v1alpha1_StoreSpec(spec *unversioned.StoreSpec, out *StoreSpec, _ conversion.Scope) error {
-	out.Parameters = spec.Parameters
 	return nil
 }

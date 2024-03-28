@@ -1,0 +1,42 @@
+name: Merge staging Into Main
+
+on:
+  push:
+    branches:
+      - 'staging' #to update to staging
+
+permissions:
+  pull-requests: write
+
+jobs:
+  main:
+    name: Create PR Release to Main
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+      
+      - name: get pr name
+        run: |
+          echo "$GITHUB_CONTEXT"| jq '.event.commits[].id' | tail -2 | head -1 |sed 's/\"//g'
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+    
+      # https://github.com/marketplace/actions/github-pull-request-action
+      - name: create pull request with reposync action2
+        id: open-pr
+        uses: repo-sync/pull-request@v2 #TODO switch for digest
+        with:
+          github_token: ${{ secrets.PR_TOKEN }}
+          destination_branch: main
+          pr_title: "[Automated] Merge ${{ env.GITHUB_CONTEXT }} into main"
+          pr_body: "Automated Pull Request"
+
+      # https://github.com/marketplace/actions/enable-pull-request-automerge
+      - name: enable automerge
+        if: steps.open-pr.outputs.pr_number != ''
+        uses: peter-evans/enable-pull-request-automerge@v2 #TODO switch for digest
+        with:
+          token: ${{ secrets.PR_TOKEN }}
+          pull-request-number: ${{ steps.open-pr.outputs.pr_number }}
+          merge-method: merge
